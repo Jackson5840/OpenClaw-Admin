@@ -210,12 +210,17 @@ export default {
         suffix: '为中国渠道生态提供扩展支持。各渠道官方教学可通过下方链接直接访问。',
       },
       guides: {
+        telegram: 'Telegram 教学',
         qqbot: 'QQ 教学',
         feishu: '飞书 教学',
         dingtalk: '钉钉 教学',
         wecom: '企业微信 教学',
       },
       channels: {
+        telegram: {
+          label: 'Telegram',
+          description: '适用于 Telegram Bot 场景，通常只需要配置 botToken。',
+        },
         qqbot: {
           label: 'QQ',
           description: '面向 QQ 群与私聊场景，推荐仅配置 appId、clientSecret 与 markdownSupport。',

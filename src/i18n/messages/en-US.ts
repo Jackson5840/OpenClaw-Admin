@@ -210,12 +210,17 @@ export default {
         suffix: ' for expanding support for the China channel ecosystem. Official guides are linked below.',
       },
       guides: {
+        telegram: 'Telegram guide',
         qqbot: 'QQ guide',
         feishu: 'Feishu guide',
         dingtalk: 'DingTalk guide',
         wecom: 'WeCom guide',
       },
       channels: {
+        telegram: {
+          label: 'Telegram',
+          description: 'For Telegram bot scenarios. Usually you only need to configure botToken.',
+        },
         qqbot: {
           label: 'QQ',
           description: 'For QQ groups and DMs. Recommended to only configure appId, clientSecret, and markdownSupport.',

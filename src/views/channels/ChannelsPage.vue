@@ -26,7 +26,7 @@ import {
 } from '@vicons/ionicons5'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
-import { faQq } from '@fortawesome/free-brands-svg-icons'
+import { faQq, faTelegram } from '@fortawesome/free-brands-svg-icons'
 import { useI18n } from 'vue-i18n'
 import {
   faCircleCheck,
@@ -42,7 +42,7 @@ import {
 import { maskSecretValue } from '@/utils/secret-mask'
 
 interface ChinaChannelMeta {
-  key: 'qqbot' | 'feishu' | 'dingtalk' | 'wecom'
+  key: 'telegram' | 'qqbot' | 'feishu' | 'dingtalk' | 'wecom'
   icon: IconDefinition
   pluginPackages: string[]
   pluginIds: string[]
@@ -60,6 +60,13 @@ interface ChannelCard extends ChinaChannelMeta {
 }
 
 const CHINA_CHANNELS: ChinaChannelMeta[] = [
+  {
+    key: 'telegram',
+    icon: faTelegram,
+    pluginPackages: ['telegram'],
+    pluginIds: ['telegram'],
+    guideUrl: 'https://core.telegram.org/bots',
+  },
   {
     key: 'qqbot',
     icon: faQq,
@@ -353,6 +360,7 @@ onMounted(() => {
             </span>
           </div>
           <span class="guide-pill-row">
+            <a class="guide-pill" href="https://core.telegram.org/bots" target="_blank" rel="noopener noreferrer">{{ t('pages.channels.guides.telegram') }}</a>
             <a class="guide-pill" href="https://github.com/BytePioneer-AI/openclaw-china/blob/main/doc/guides/qqbot/configuration.md" target="_blank" rel="noopener noreferrer">{{ t('pages.channels.guides.qqbot') }}</a>
             <a class="guide-pill" href="https://github.com/openclaw/openclaw/blob/main/docs/zh-CN/channels/feishu.md" target="_blank" rel="noopener noreferrer">{{ t('pages.channels.guides.feishu') }}</a>
             <a class="guide-pill" href="https://github.com/BytePioneer-AI/openclaw-china/blob/main/doc/guides/dingtalk/configuration.md" target="_blank" rel="noopener noreferrer">{{ t('pages.channels.guides.dingtalk') }}</a>
@@ -748,6 +756,10 @@ onMounted(() => {
   color: #fff;
   font-size: 12px;
   box-shadow: 0 6px 12px rgba(15, 23, 42, 0.22);
+}
+
+.channel-brand--telegram {
+  background: linear-gradient(135deg, #229ed9 0%, #2563eb 100%);
 }
 
 .channel-brand--qqbot {
