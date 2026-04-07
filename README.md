@@ -1,4 +1,4 @@
-# OpenClaw Admin - AI 智能体管理平台
+# OpenClaw Admin [Docker] - AI 智能体管理平台
 
 <p align="center">
   <strong>现代化的 AI 智能体网关管理控制台</strong>
@@ -285,13 +285,46 @@ npm run dev:server
 npm run dev:all
 ```
 
-访问 `http://localhost:3000` 进入管理界面。
+开发模式访问：
+- 前端：`http://localhost:3001`
+- 后端 API：`http://localhost:3000`
 
 ### 生产构建
 
 ```bash
 npm run build
 ```
+
+### Docker 部署
+
+```bash
+cp .env.example .env
+docker compose build
+docker compose up -d
+```
+
+Docker 默认访问：
+- 管理界面：`http://localhost:3000`
+
+常用命令：
+
+```bash
+docker compose logs -f
+docker compose down
+```
+
+默认持久化目录：
+- `./data`：SQLite 数据库
+- `./backups`：备份文件
+
+可选媒体目录挂载：
+- 默认会把 `${MEDIA_VOLUME:-./media}` 挂到容器内 `/app/media`
+- 通过 `.env` 里的 `MEDIA_DIR=/app/media` 让服务读取该目录
+
+说明：
+- Docker 版本走生产模式，容器内会先构建前端，再由 `server/index.js` 统一提供前后端服务
+- 当前 `docker-compose.yml` 使用 `network_mode: host`，这样容器里的 `ws://localhost:18789` 才能直连宿主机本地的 OpenClaw Gateway
+- 如果你要在容器里使用依赖宿主机 `openclaw` CLI 的完整备份/恢复能力，还需要额外提供对应 CLI 与 OpenClaw 数据目录，这一版 compose 先只保证 Admin 控制台本体可运行
 
 ### 预览构建结果
 

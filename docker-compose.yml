@@ -1,0 +1,19 @@
+services:
+  openclaw-admin:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: openclaw-admin
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - .env
+    environment:
+      PORT: ${PORT:-3000}
+      MEDIA_DIR: ${MEDIA_DIR:-/app/media}
+    volumes:
+      - ./.env:/app/.env:ro
+      - ./data:/app/data
+      - ./backups:/app/backups
+      # Optional: mount your OpenClaw media directory and point MEDIA_DIR to /app/media in .env
+      - ${MEDIA_VOLUME:-./media}:/app/media
