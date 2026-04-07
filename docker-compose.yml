@@ -9,7 +9,7 @@ services:
     env_file:
       - .env
     environment:
-      PORT: ${PORT:-3000}
+      PORT: ${PORT:-3829}
       MEDIA_DIR: ${MEDIA_DIR:-/app/media}
     volumes:
       - ./.env:/app/.env:ro

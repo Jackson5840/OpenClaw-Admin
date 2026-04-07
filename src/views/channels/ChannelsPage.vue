@@ -26,7 +26,7 @@ import {
 } from '@vicons/ionicons5'
 import { FontAwesomeIcon } from '@fortawesome/vue-fontawesome'
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
-import { faQq, faTelegram } from '@fortawesome/free-brands-svg-icons'
+import { faDiscord, faQq, faTelegram } from '@fortawesome/free-brands-svg-icons'
 import { useI18n } from 'vue-i18n'
 import {
   faCircleCheck,
@@ -39,17 +39,27 @@ import {
   collectSecretFieldKeys,
   resolveChannelTemplate,
 } from '@/utils/channel-config'
-import { maskSecretValue } from '@/utils/secret-mask'
+import { isSecretFieldKey, maskSecretValue } from '@/utils/secret-mask'
 
-interface ChinaChannelMeta {
-  key: 'telegram' | 'qqbot' | 'feishu' | 'dingtalk' | 'wecom'
+interface ChannelMeta {
+  key: 'telegram' | 'discord' | 'qqbot' | 'feishu' | 'dingtalk' | 'wecom'
   icon: IconDefinition
   pluginPackages: string[]
   pluginIds: string[]
   guideUrl: string
 }
 
-interface ChannelCard extends ChinaChannelMeta {
+interface AccountCard {
+  accountId: string
+  accountName: string
+  configured: boolean
+  runtimePresent: boolean
+  runtimeStatus: string
+  fieldKeys: string[]
+  secretKeys: string[]
+}
+
+interface ChannelCard extends ChannelMeta {
   channelKey: string
   label: string
   description: string
@@ -57,15 +67,23 @@ interface ChannelCard extends ChinaChannelMeta {
   pluginInstalled: boolean
   configured: boolean
   visibleSecretKeys: string[]
+  accounts: AccountCard[]
 }
 
-const CHINA_CHANNELS: ChinaChannelMeta[] = [
+const CHANNELS: ChannelMeta[] = [
   {
     key: 'telegram',
     icon: faTelegram,
     pluginPackages: ['telegram'],
     pluginIds: ['telegram'],
     guideUrl: 'https://core.telegram.org/bots',
+  },
+  {
+    key: 'discord',
+    icon: faDiscord,
+    pluginPackages: ['discord'],
+    pluginIds: ['discord'],
+    guideUrl: 'https://discord.com/developers/docs/quick-start/getting-started',
   },
   {
     key: 'qqbot',
@@ -97,16 +115,45 @@ const CHINA_CHANNELS: ChinaChannelMeta[] = [
   },
 ]
 
+const ACCOUNT_IGNORED_FIELDS = new Set([
+  'enabled',
+  'dmPolicy',
+  'allowFrom',
+  'groupPolicy',
+  'requireMention',
+  'groupAllowFrom',
+  'groups',
+  'accountId',
+  'accountName',
+  'status',
+  'id',
+  'platform',
+  'channel',
+  'channelKey',
+])
+
 const channelStore = useChannelManagementStore()
 const message = useMessage()
 const { t } = useI18n()
 
 const expandedChannelKeys = ref<string[]>([])
 const installLoading = ref<Record<string, boolean>>({})
+const newAccountDrafts = ref<Record<string, string>>({})
 
 function asRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
   return value as Record<string, unknown>
+}
+
+function asAccountsRecord(value: unknown): Record<string, Record<string, unknown>> {
+  const row = asRecord(value)
+  const result: Record<string, Record<string, unknown>> = {}
+  for (const [key, item] of Object.entries(row)) {
+    const record = asRecord(item)
+    if (Object.keys(record).length === 0) continue
+    result[key] = record
+  }
+  return result
 }
 
 function readString(value: unknown): string {
@@ -138,7 +185,15 @@ function pluginStatusLabel(card: { pluginStatusKnown: boolean; pluginInstalled: 
   return card.pluginInstalled ? t('pages.channels.pluginStatus.assumedInstalled') : t('pages.channels.pluginStatus.unknown')
 }
 
-function resolveManagedChannelKey(focusKey: ChinaChannelMeta['key']): string {
+function runtimeStatusType(status: string): 'success' | 'warning' | 'error' | 'default' {
+  if (status === 'connected') return 'success'
+  if (status === 'authenticating') return 'warning'
+  if (status === 'error') return 'error'
+  if (status === 'disconnected') return 'default'
+  return 'default'
+}
+
+function resolveManagedChannelKey(focusKey: ChannelMeta['key']): string {
   const draftKey = Object.keys(channelStore.channelsDraft).find(
     (key) => resolveChannelTemplate(key)?.key === focusKey
   )
@@ -156,10 +211,74 @@ function readChannelConfig(channelKey: string): Record<string, unknown> {
   return asRecord(channelStore.channelsDraft[channelKey])
 }
 
+function readChannelAccounts(channelKey: string): Record<string, Record<string, unknown>> {
+  return asAccountsRecord(readChannelConfig(channelKey).accounts)
+}
+
+function collectAccountFieldKeys(value: Record<string, unknown>, fallbackKeys: string[] = []): string[] {
+  const keys = new Set<string>()
+  for (const key of fallbackKeys) {
+    if (key.trim()) keys.add(key.trim())
+  }
+
+  for (const key of Object.keys(value)) {
+    if (ACCOUNT_IGNORED_FIELDS.has(key)) continue
+    if (isSecretFieldKey(key)) continue
+    const raw = value[key]
+    if (raw && typeof raw === 'object') continue
+    keys.add(key)
+  }
+
+  return Array.from(keys).sort()
+}
+
+function buildAccountCards(channelKey: string, focusKey: ChannelMeta['key']): AccountCard[] {
+  const template = resolveChannelTemplate(focusKey)
+  const draftAccounts = readChannelAccounts(channelKey)
+  const runtimeAccounts = channelStore.runtimeByChannel[channelKey] || []
+  const merged = new Map<string, AccountCard>()
+
+  for (const [accountId, accountConfig] of Object.entries(draftAccounts)) {
+    merged.set(accountId, {
+      accountId,
+      accountName: '',
+      configured: true,
+      runtimePresent: false,
+      runtimeStatus: '',
+      fieldKeys: collectAccountFieldKeys(accountConfig, template?.accountFields || []),
+      secretKeys: collectSecretFieldKeys(accountConfig, template?.accountSecretFields || []),
+    })
+  }
+
+  for (const runtimeChannel of runtimeAccounts) {
+    const accountId = readString(runtimeChannel.accountId) || 'default'
+    const existing = merged.get(accountId)
+    const next: AccountCard = existing || {
+      accountId,
+      accountName: '',
+      configured: false,
+      runtimePresent: false,
+      runtimeStatus: '',
+      fieldKeys: collectAccountFieldKeys({}, template?.accountFields || []),
+      secretKeys: collectSecretFieldKeys({}, template?.accountSecretFields || []),
+    }
+
+    const draftConfig = draftAccounts[accountId] || {}
+    next.accountName = readString(runtimeChannel.accountName) || next.accountName
+    next.runtimePresent = true
+    next.runtimeStatus = readString(runtimeChannel.status)
+    next.fieldKeys = collectAccountFieldKeys(draftConfig, template?.accountFields || next.fieldKeys)
+    next.secretKeys = collectSecretFieldKeys(draftConfig, template?.accountSecretFields || next.secretKeys)
+    merged.set(accountId, next)
+  }
+
+  return Array.from(merged.values()).sort((a, b) => a.accountId.localeCompare(b.accountId))
+}
+
 const channelCards = computed(() => {
   const installStatusKnown = channelStore.pluginRpcSupported || channelStore.runtimeChannels.length > 0
 
-  return CHINA_CHANNELS.map((meta) => {
+  return CHANNELS.map((meta) => {
     const label = t(`pages.channels.channels.${meta.key}.label`)
     const description = t(`pages.channels.channels.${meta.key}.description`)
     const channelKey = resolveManagedChannelKey(meta.key)
@@ -185,6 +304,7 @@ const channelCards = computed(() => {
       pluginInstalled,
       configured,
       visibleSecretKeys,
+      accounts: buildAccountCards(channelKey, meta.key),
     }
   })
 })
@@ -237,6 +357,74 @@ function updateSecretInput(channelKey: string, field: string, value: string): vo
 
 function hasSecretUpdate(channelKey: string, field: string): boolean {
   return channelStore.hasSecretUpdate({ channelKey, field })
+}
+
+function readAccountConfig(channelKey: string, accountId: string): Record<string, unknown> {
+  return readChannelAccounts(channelKey)[accountId] || {}
+}
+
+function accountEnabled(channelKey: string, accountId: string): boolean {
+  return readBoolean(readAccountConfig(channelKey, accountId).enabled, true)
+}
+
+function updateAccountEnabled(channelKey: string, accountId: string, value: boolean): void {
+  channelStore.setAccountField(channelKey, accountId, 'enabled', value)
+}
+
+function accountFieldValue(channelKey: string, accountId: string, field: string): string {
+  return readString(readAccountConfig(channelKey, accountId)[field])
+}
+
+function updateAccountField(channelKey: string, accountId: string, field: string, value: string): void {
+  channelStore.setAccountField(channelKey, accountId, field, shouldKeepStringValue(value))
+}
+
+function accountSecretValue(channelKey: string, accountId: string, field: string): string {
+  return maskSecretValue(readAccountConfig(channelKey, accountId)[field])
+}
+
+function readAccountSecretInput(channelKey: string, accountId: string, field: string): string {
+  return channelStore.getSecretUpdate({ channelKey, accountId, field })
+}
+
+function updateAccountSecretInput(channelKey: string, accountId: string, field: string, value: string): void {
+  channelStore.setSecretUpdate({ channelKey, accountId, field }, value)
+}
+
+function hasAccountSecretUpdate(channelKey: string, accountId: string, field: string): boolean {
+  return channelStore.hasSecretUpdate({ channelKey, accountId, field })
+}
+
+function accountDraftValue(channelKey: string): string {
+  return newAccountDrafts.value[channelKey] || ''
+}
+
+function updateAccountDraftValue(channelKey: string, value: string): void {
+  newAccountDrafts.value[channelKey] = value
+}
+
+function addAccount(channelKey: string): void {
+  const accountId = (newAccountDrafts.value[channelKey] || '').trim()
+  if (!accountId) {
+    message.warning(t('pages.channels.accountIdRequired'))
+    return
+  }
+
+  if (readChannelAccounts(channelKey)[accountId]) {
+    message.warning(t('pages.channels.accountExists', { accountId }))
+    return
+  }
+
+  channelStore.ensureDraftChannel(channelKey)
+  channelStore.upsertAccount(channelKey, accountId)
+  newAccountDrafts.value[channelKey] = ''
+  refreshExpandedPanels()
+  message.success(t('pages.channels.accountAdded', { accountId }))
+}
+
+function removeAccount(channelKey: string, accountId: string): void {
+  channelStore.deleteAccount(channelKey, accountId)
+  message.success(t('pages.channels.accountRemoved', { accountId }))
 }
 
 function refreshExpandedPanels(): void {
@@ -361,6 +549,7 @@ onMounted(() => {
           </div>
           <span class="guide-pill-row">
             <a class="guide-pill" href="https://core.telegram.org/bots" target="_blank" rel="noopener noreferrer">{{ t('pages.channels.guides.telegram') }}</a>
+            <a class="guide-pill" href="https://discord.com/developers/docs/quick-start/getting-started" target="_blank" rel="noopener noreferrer">{{ t('pages.channels.guides.discord') }}</a>
             <a class="guide-pill" href="https://github.com/BytePioneer-AI/openclaw-china/blob/main/doc/guides/qqbot/configuration.md" target="_blank" rel="noopener noreferrer">{{ t('pages.channels.guides.qqbot') }}</a>
             <a class="guide-pill" href="https://github.com/openclaw/openclaw/blob/main/docs/zh-CN/channels/feishu.md" target="_blank" rel="noopener noreferrer">{{ t('pages.channels.guides.feishu') }}</a>
             <a class="guide-pill" href="https://github.com/BytePioneer-AI/openclaw-china/blob/main/doc/guides/dingtalk/configuration.md" target="_blank" rel="noopener noreferrer">{{ t('pages.channels.guides.dingtalk') }}</a>
@@ -491,6 +680,138 @@ onMounted(() => {
                       />
                     </NFormItem>
                   </NForm>
+                </NCard>
+
+                <NCard size="small" :title="t('pages.channels.accountsTitle')" embedded>
+                  <NSpace vertical :size="12">
+                    <div class="account-toolbar-row">
+                      <NText depth="3">{{ t('pages.channels.accountsHint') }}</NText>
+                      <NInputGroup class="account-add-group">
+                        <NInput
+                          :value="accountDraftValue(card.channelKey)"
+                          :placeholder="t('pages.channels.placeholders.accountId')"
+                          @update:value="(value) => updateAccountDraftValue(card.channelKey, value)"
+                        />
+                        <NButton type="primary" @click="addAccount(card.channelKey)">
+                          <template #icon><NIcon :component="AddOutline" /></template>
+                          {{ t('pages.channels.addAccount') }}
+                        </NButton>
+                      </NInputGroup>
+                    </div>
+
+                    <NSpace
+                      v-if="card.accounts.length === 0"
+                      justify="center"
+                      style="padding: 8px 0;"
+                    >
+                      <NText depth="3">{{ t('pages.channels.noAccounts') }}</NText>
+                    </NSpace>
+
+                    <NCard
+                      v-for="account in card.accounts"
+                      :key="`${card.channelKey}-${account.accountId}`"
+                      size="small"
+                      embedded
+                      class="account-card"
+                    >
+                      <template #header>
+                        <NSpace align="center" :size="8" class="channel-header-row">
+                          <NText strong>{{ account.accountId }}</NText>
+                          <NTag
+                            :type="account.configured ? 'success' : 'default'"
+                            size="small"
+                            :bordered="false"
+                          >
+                            {{ account.configured ? t('pages.channels.accountConfigured') : t('pages.channels.accountNotConfigured') }}
+                          </NTag>
+                          <NTag
+                            v-if="account.runtimePresent"
+                            :type="runtimeStatusType(account.runtimeStatus)"
+                            size="small"
+                            :bordered="false"
+                          >
+                            {{ account.runtimeStatus || t('pages.channels.runtimeDetected') }}
+                          </NTag>
+                        </NSpace>
+                      </template>
+                      <template #header-extra>
+                        <NButton
+                          size="small"
+                          quaternary
+                          type="error"
+                          :disabled="!account.configured"
+                          @click="removeAccount(card.channelKey, account.accountId)"
+                        >
+                          {{ t('common.delete') }}
+                        </NButton>
+                      </template>
+
+                      <NSpace vertical :size="10">
+                        <NText v-if="account.accountName" depth="3">
+                          {{ t('pages.channels.accountNameLabel', { name: account.accountName }) }}
+                        </NText>
+
+                        <NForm label-placement="left" label-width="140" class="channel-config-form">
+                          <NFormItem :label="t('pages.channels.labels.enabled')">
+                            <NSwitch
+                              :value="accountEnabled(card.channelKey, account.accountId)"
+                              @update:value="(value) => updateAccountEnabled(card.channelKey, account.accountId, value)"
+                            />
+                          </NFormItem>
+                          <NFormItem
+                            v-for="field in account.fieldKeys"
+                            :key="`account-field-${card.channelKey}-${account.accountId}-${field}`"
+                            :label="field"
+                          >
+                            <NInput
+                              :value="accountFieldValue(card.channelKey, account.accountId, field)"
+                              :placeholder="t('pages.channels.placeholders.accountField', { field })"
+                              @update:value="(value) => updateAccountField(card.channelKey, account.accountId, field, value)"
+                            />
+                          </NFormItem>
+                        </NForm>
+
+                        <NAlert type="info" :bordered="false">
+                          {{ t('pages.channels.accountCredentialsHint') }}
+                        </NAlert>
+
+                        <NSpace
+                          v-if="account.secretKeys.length === 0"
+                          justify="center"
+                          style="padding: 4px 0;"
+                        >
+                          <NText depth="3">{{ t('pages.channels.noAccountSecretFields') }}</NText>
+                        </NSpace>
+
+                        <NForm v-else label-placement="left" label-width="160" class="channel-secret-form">
+                          <NFormItem
+                            v-for="field in account.secretKeys"
+                            :key="`account-secret-${card.channelKey}-${account.accountId}-${field}`"
+                            :label="field"
+                          >
+                            <NInputGroup>
+                              <NInput :value="accountSecretValue(card.channelKey, account.accountId, field)" disabled style="width: 180px;" />
+                              <NInput
+                                type="password"
+                                show-password-on="click"
+                                :value="readAccountSecretInput(card.channelKey, account.accountId, field)"
+                                :placeholder="t('pages.channels.placeholders.secret')"
+                                @update:value="(value) => updateAccountSecretInput(card.channelKey, account.accountId, field, value)"
+                              />
+                              <NTag
+                                v-if="hasAccountSecretUpdate(card.channelKey, account.accountId, field)"
+                                type="warning"
+                                :bordered="false"
+                                style="align-self: center;"
+                              >
+                                {{ t('pages.channels.pendingUpdate') }}
+                              </NTag>
+                            </NInputGroup>
+                          </NFormItem>
+                        </NForm>
+                      </NSpace>
+                    </NCard>
+                  </NSpace>
                 </NCard>
 
                 <NCard v-if="card.configured" size="small" :title="t('pages.channels.credentialsTitle')" embedded>
@@ -762,6 +1083,10 @@ onMounted(() => {
   background: linear-gradient(135deg, #229ed9 0%, #2563eb 100%);
 }
 
+.channel-brand--discord {
+  background: linear-gradient(135deg, #5865f2 0%, #404eed 100%);
+}
+
 .channel-brand--qqbot {
   background: linear-gradient(135deg, #111827 0%, #2563eb 100%);
 }
@@ -816,6 +1141,22 @@ onMounted(() => {
 .desc-link:hover {
   color: var(--channel-link-hover);
   text-decoration: underline;
+}
+
+.account-toolbar-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.account-add-group {
+  width: min(420px, 100%);
+}
+
+.account-card {
+  border: 1px solid var(--channel-card-border);
 }
 
 :deep(.n-collapse-item) {
@@ -916,7 +1257,8 @@ onMounted(() => {
     gap: 8px;
   }
 
-  .channel-desc-panel {
+  .channel-desc-panel,
+  .account-toolbar-row {
     align-items: flex-start;
     flex-direction: column;
   }
@@ -933,12 +1275,14 @@ onMounted(() => {
     padding: 9px 10px 10px;
   }
 
-  :deep(.channel-secret-form .n-input-group) {
+  :deep(.channel-secret-form .n-input-group),
+  :deep(.account-add-group.n-input-group) {
     flex-wrap: wrap;
     gap: 8px;
   }
 
-  :deep(.channel-secret-form .n-input-group > .n-input) {
+  :deep(.channel-secret-form .n-input-group > .n-input),
+  :deep(.account-add-group.n-input-group > .n-input) {
     width: 100% !important;
   }
 

@@ -286,8 +286,8 @@ npm run dev:all
 ```
 
 开发模式访问：
-- 前端：`http://localhost:3001`
-- 后端 API：`http://localhost:3000`
+- 前端：`http://localhost:3828`
+- 后端 API：`http://localhost:3829`
 
 ### 生产构建
 
@@ -304,7 +304,7 @@ docker compose up -d
 ```
 
 Docker 默认访问：
-- 管理界面：`http://localhost:3000`
+- 管理界面：`http://localhost:3829`
 
 常用命令：
 
@@ -478,9 +478,9 @@ VITE_APP_TITLE=OpenClaw Admin
 OPENCLAW_WS_URL=ws://localhost:18789
 OPENCLAW_AUTH_TOKEN=
 OPENCLAW_AUTH_PASSWORD=      # Gateway 密码，与 Token 二选一即可
-PORT=3001
-DEV_PORT=3000
-DEV_FRONTEND_URL=http://localhost:3000
+PORT=3829
+DEV_PORT=3828
+DEV_FRONTEND_URL=http://localhost:3828
 AUTH_USERNAME=
 AUTH_PASSWORD=
 MEDIA_DIR=

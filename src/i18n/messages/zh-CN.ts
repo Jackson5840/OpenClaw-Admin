@@ -211,6 +211,7 @@ export default {
       },
       guides: {
         telegram: 'Telegram 教学',
+        discord: 'Discord 教学',
         qqbot: 'QQ 教学',
         feishu: '飞书 教学',
         dingtalk: '钉钉 教学',
@@ -220,6 +221,10 @@ export default {
         telegram: {
           label: 'Telegram',
           description: '适用于 Telegram Bot 场景，通常只需要配置 botToken。',
+        },
+        discord: {
+          label: 'Discord',
+          description: '适用于 Discord Bot 场景，通常需要 botToken、applicationId，有时还需要 publicKey。',
         },
         qqbot: {
           label: 'QQ',
@@ -260,6 +265,20 @@ export default {
       },
       remoteInstallFallback: '若远程安装失败，请登录 Gateway 所在服务器执行以下命令后重试：',
       basicConfigTitle: '基础配置',
+      accountsTitle: '账号管理',
+      accountsHint: '这里会列出当前渠道下已配置或运行时已发现的账号，可直接新增、删除并更新账号级字段与凭证。',
+      addAccount: '新增账号',
+      noAccounts: '当前还没有账号，可先新增一个 accountId。',
+      accountConfigured: '已配置',
+      accountNotConfigured: '未配置',
+      runtimeDetected: '运行时已发现',
+      accountIdRequired: '请先填写 accountId',
+      accountExists: '账号 {accountId} 已存在',
+      accountAdded: '已新增账号：{accountId}',
+      accountRemoved: '已移除账号：{accountId}',
+      accountNameLabel: '运行时名称：{name}',
+      accountCredentialsHint: '账号级凭证仅显示掩码。输入新值后会在保存时提交；未输入则保持原值。',
+      noAccountSecretFields: '当前账号未识别到账号级凭证字段',
       labels: {
         enabled: '启用渠道',
         appId: 'App ID',
@@ -269,6 +288,8 @@ export default {
       placeholders: {
         qqAppId: '输入 QQ App ID',
         dingtalkClientId: '输入钉钉 Client ID',
+        accountId: '输入新的 accountId，例如 default / bot-2',
+        accountField: '输入 {field}',
         secret: '输入新值（留空不变更）',
       },
       credentialsTitle: '凭证更新（掩码）',

@@ -20,5 +20,5 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/server ./server
 COPY --from=builder /app/data ./data
 RUN mkdir -p /app/backups /app/data /app/media
-EXPOSE 3000
+EXPOSE 3829
 CMD ["npm", "start"]

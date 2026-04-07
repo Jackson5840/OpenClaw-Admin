@@ -211,6 +211,7 @@ export default {
       },
       guides: {
         telegram: 'Telegram guide',
+        discord: 'Discord guide',
         qqbot: 'QQ guide',
         feishu: 'Feishu guide',
         dingtalk: 'DingTalk guide',
@@ -220,6 +221,10 @@ export default {
         telegram: {
           label: 'Telegram',
           description: 'For Telegram bot scenarios. Usually you only need to configure botToken.',
+        },
+        discord: {
+          label: 'Discord',
+          description: 'For Discord bot scenarios. Usually you need botToken and applicationId, and sometimes publicKey.',
         },
         qqbot: {
           label: 'QQ',
@@ -260,6 +265,20 @@ export default {
       },
       remoteInstallFallback: 'If remote install fails, run the following commands on the Gateway server and try again:',
       basicConfigTitle: 'Basic config',
+      accountsTitle: 'Accounts',
+      accountsHint: 'Shows configured accounts and runtime-detected accounts for this channel. You can add, remove, and edit account-level fields and credentials here.',
+      addAccount: 'Add account',
+      noAccounts: 'No accounts yet. Add an accountId to create the first one.',
+      accountConfigured: 'Configured',
+      accountNotConfigured: 'Not configured',
+      runtimeDetected: 'Detected at runtime',
+      accountIdRequired: 'Please enter an accountId first',
+      accountExists: 'Account {accountId} already exists',
+      accountAdded: 'Added account: {accountId}',
+      accountRemoved: 'Removed account: {accountId}',
+      accountNameLabel: 'Runtime name: {name}',
+      accountCredentialsHint: 'Account credentials are masked. New values are submitted on save; leaving blank keeps the existing value.',
+      noAccountSecretFields: 'No account credential fields detected',
       labels: {
         enabled: 'Enable channel',
         appId: 'App ID',
@@ -269,6 +288,8 @@ export default {
       placeholders: {
         qqAppId: 'Enter QQ App ID',
         dingtalkClientId: 'Enter DingTalk Client ID',
+        accountId: 'Enter a new accountId, e.g. default / bot-2',
+        accountField: 'Enter {field}',
         secret: 'Enter new value (leave blank to keep)',
       },
       credentialsTitle: 'Credentials (masked)',
