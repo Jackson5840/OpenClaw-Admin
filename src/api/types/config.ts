@@ -114,6 +114,7 @@ export interface Binding {
   agentId?: string
   match?: {
     channel: string
+    accountId?: string
     peer?: {
       kind: 'direct' | 'group' | 'channel' | 'dm' | 'acp'
       id: string

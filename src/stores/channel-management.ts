@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import type {
+  Binding,
   Channel,
   ChannelAccountConfig,
   ChannelConfig,
@@ -62,6 +63,27 @@ function asStringArray(value: unknown): string[] {
     .filter(Boolean)
 }
 
+function cloneBindings(bindings?: Binding[]): Binding[] {
+  if (!Array.isArray(bindings)) return []
+  return JSON.parse(JSON.stringify(bindings)) as Binding[]
+}
+
+function normalizeChannelKey(raw: string): string {
+  return raw.trim().toLowerCase()
+}
+
+function matchesAccountBinding(binding: Binding, channelKey: string, accountId: string): boolean {
+  const normalizedChannelKey = normalizeChannelKey(channelKey)
+  const normalizedAccountId = asString(accountId)
+  const match = binding.match
+  if (!match || normalizeChannelKey(match.channel || '') !== normalizedChannelKey) return false
+  return asString(match.accountId) === normalizedAccountId
+}
+
+function bindingAgentId(binding: Binding): string {
+  return asString(binding.agentId)
+}
+
 function secretScopeKey(scope: SecretScope): string {
   return `${scope.channelKey}|${scope.accountId || ''}|${scope.field}`
 }
@@ -92,6 +114,8 @@ export const useChannelManagementStore = defineStore('channel-management', () =>
   const configSnapshot = ref<OpenClawConfig | null>(null)
   const channelsBaseline = ref<Record<string, ChannelConfig>>({})
   const channelsDraft = ref<Record<string, ChannelConfig>>({})
+  const bindingsBaseline = ref<Binding[]>([])
+  const bindingsDraft = ref<Binding[]>([])
   const plugins = ref<PluginPackage[]>([])
   const pluginInstalledMap = ref<Record<string, boolean>>({})
   const pluginRpcSupported = ref(true)
@@ -231,6 +255,8 @@ export const useChannelManagementStore = defineStore('channel-management', () =>
     configSnapshot.value = config
     channelsBaseline.value = channels
     channelsDraft.value = cloneChannelConfigs(channels)
+    bindingsBaseline.value = cloneBindings(config.bindings)
+    bindingsDraft.value = cloneBindings(config.bindings)
     secretUpdates.value = {}
     syncPluginInstalledMap()
   }
@@ -273,6 +299,17 @@ export const useChannelManagementStore = defineStore('channel-management', () =>
 
   function deleteAccount(channelKey: string, accountId: string): void {
     removeAccountConfig(channelsDraft.value, channelKey, accountId)
+    bindingsDraft.value = bindingsDraft.value.filter(
+      (binding) => !matchesAccountBinding(binding, channelKey, accountId)
+    )
+
+    for (const key of Object.keys(secretUpdates.value)) {
+      const scope = splitSecretScopeKey(key)
+      if (!scope) continue
+      if (scope.channelKey !== normalizeChannelKey(channelKey)) continue
+      if (scope.accountId !== asString(accountId)) continue
+      delete secretUpdates.value[key]
+    }
   }
 
   function replaceChannelConfig(channelKey: string, nextConfig: ChannelConfig): void {
@@ -307,6 +344,28 @@ export const useChannelManagementStore = defineStore('channel-management', () =>
       return
     }
     accountConfig[field] = value
+  }
+
+  function getAccountAgent(channelKey: string, accountId: string): string {
+    const match = bindingsDraft.value.find((binding) => matchesAccountBinding(binding, channelKey, accountId))
+    return match ? bindingAgentId(match) : ''
+  }
+
+  function setAccountAgent(channelKey: string, accountId: string, agentId?: string): void {
+    const normalizedAgentId = asString(agentId)
+    bindingsDraft.value = bindingsDraft.value.filter(
+      (binding) => !matchesAccountBinding(binding, channelKey, accountId)
+    )
+
+    if (!normalizedAgentId) return
+
+    bindingsDraft.value.push({
+      agentId: normalizedAgentId,
+      match: {
+        channel: normalizeChannelKey(channelKey),
+        accountId: asString(accountId),
+      },
+    })
   }
 
   function setSecretUpdate(scope: SecretScope, rawValue: string): void {
@@ -444,6 +503,13 @@ export const useChannelManagementStore = defineStore('channel-management', () =>
     try {
       const nextChannels = buildPersistedChannelsDraft()
       const patches = buildChannelPatches(channelsBaseline.value, nextChannels)
+      const nextBindings = cloneBindings(bindingsDraft.value)
+      if (JSON.stringify(bindingsBaseline.value) !== JSON.stringify(nextBindings)) {
+        patches.push({
+          path: 'bindings',
+          value: nextBindings,
+        })
+      }
       if (patches.length === 0) {
         return []
       }
@@ -493,6 +559,8 @@ export const useChannelManagementStore = defineStore('channel-management', () =>
     configSnapshot,
     channelsBaseline,
     channelsDraft,
+    bindingsBaseline,
+    bindingsDraft,
     plugins,
     pluginInstalledMap,
     pluginRpcSupported,
@@ -511,6 +579,8 @@ export const useChannelManagementStore = defineStore('channel-management', () =>
     replaceAccountConfig,
     setChannelField,
     setAccountField,
+    getAccountAgent,
+    setAccountAgent,
     setSecretUpdate,
     getSecretUpdate,
     hasSecretUpdate,

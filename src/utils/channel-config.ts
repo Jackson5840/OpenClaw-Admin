@@ -255,40 +255,6 @@ function diffChannelNode(
 ): void {
   if (deepEqual(beforeValue, afterValue)) return
 
-  if (path.endsWith('.accounts')) {
-    if (isPlainObject(beforeValue) && isPlainObject(afterValue)) {
-      const beforeKeys = Object.keys(beforeValue).sort()
-      const afterKeys = Object.keys(afterValue).sort()
-      const sameKeys =
-        beforeKeys.length === afterKeys.length &&
-        beforeKeys.every((key, index) => key === afterKeys[index])
-
-      if (!sameKeys) {
-        patches.push({
-          path,
-          value: cloneJsonValue(afterValue ?? {}),
-        })
-        return
-      }
-
-      for (const accountId of afterKeys) {
-        diffChannelNode(
-          beforeValue[accountId],
-          afterValue[accountId],
-          `${path}.${accountId}`,
-          patches
-        )
-      }
-      return
-    }
-
-    patches.push({
-      path,
-      value: cloneJsonValue(afterValue ?? {}),
-    })
-    return
-  }
-
   if (Array.isArray(beforeValue) || Array.isArray(afterValue)) {
     patches.push({
       path,

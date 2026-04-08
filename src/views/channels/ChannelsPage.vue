@@ -11,12 +11,14 @@ import {
   NIcon,
   NInput,
   NInputGroup,
+  NSelect,
   NSpace,
   NSpin,
   NSwitch,
   NTag,
   NText,
   useMessage,
+  type SelectOption,
 } from 'naive-ui'
 import {
   AddOutline,
@@ -35,6 +37,7 @@ import {
   faPaperPlane,
 } from '@fortawesome/free-solid-svg-icons'
 import { useChannelManagementStore } from '@/stores/channel-management'
+import { useAgentStore } from '@/stores/agent'
 import {
   collectSecretFieldKeys,
   resolveChannelTemplate,
@@ -133,6 +136,7 @@ const ACCOUNT_IGNORED_FIELDS = new Set([
 ])
 
 const channelStore = useChannelManagementStore()
+const agentStore = useAgentStore()
 const message = useMessage()
 const { t } = useI18n()
 
@@ -309,6 +313,29 @@ const channelCards = computed(() => {
   })
 })
 
+const agentOptions = computed<SelectOption[]>(() => {
+  const options = agentStore.agents.map((agent) => ({
+    label: agent.identity?.name || agent.name || agent.id,
+    value: agent.id,
+  }))
+
+  const knownIds = new Set(options.map((option) => option.value))
+  for (const card of channelCards.value) {
+    for (const account of card.accounts) {
+      const current = channelStore.getAccountAgent(card.channelKey, account.accountId)
+      if (current && !knownIds.has(current)) {
+        options.push({
+          label: `${current} (${t('pages.channels.missingAgent')})`,
+          value: current,
+        })
+        knownIds.add(current)
+      }
+    }
+  }
+
+  return options.sort((a, b) => a.label.localeCompare(b.label))
+})
+
 function channelEnabled(channelKey: string): boolean {
   const config = readChannelConfig(channelKey)
   return typeof config.enabled === 'boolean' ? config.enabled : true
@@ -340,6 +367,21 @@ function channelMarkdownSupport(channelKey: string): boolean {
 
 function updateChannelMarkdownSupport(channelKey: string, value: boolean): void {
   channelStore.setChannelField(channelKey, 'markdownSupport', value)
+}
+
+function accountAgent(channelKey: string, accountId: string): string | null {
+  return channelStore.getAccountAgent(channelKey, accountId) || null
+}
+
+function updateAccountAgent(channelKey: string, accountId: string, value: string | null): void {
+  channelStore.setAccountAgent(channelKey, accountId, value || undefined)
+}
+
+function readAccountAgentLabel(channelKey: string, accountId: string): string {
+  const agentId = channelStore.getAccountAgent(channelKey, accountId)
+  if (!agentId) return t('pages.channels.accountAgentUnbound')
+  const match = agentOptions.value.find((option) => option.value === agentId)
+  return typeof match?.label === 'string' ? match.label : agentId
 }
 
 function channelSecretValue(channelKey: string, field: string): string {
@@ -470,7 +512,10 @@ async function installChannel(meta: ChannelCard): Promise<void> {
 
 async function handleRefresh(): Promise<void> {
   try {
-    await channelStore.refreshAll()
+    await Promise.all([
+      channelStore.refreshAll(),
+      agentStore.fetchAgents(),
+    ])
     refreshExpandedPanels()
   } catch {
     message.error(t('pages.channels.refreshFailed'))
@@ -659,6 +704,9 @@ onMounted(() => {
                         @update:value="(value) => updateChannelEnabled(card.channelKey, value)"
                       />
                     </NFormItem>
+                    <NFormItem v-if="agentStore.error" :label="t('pages.channels.labels.agent')">
+                      <NText depth="3">{{ t('pages.channels.agentLoadFailed', { error: agentStore.error }) }}</NText>
+                    </NFormItem>
                     <NFormItem v-if="card.key === 'qqbot'" :label="t('pages.channels.labels.appId')">
                       <NInput
                         :value="channelAppId(card.channelKey)"
@@ -757,6 +805,25 @@ onMounted(() => {
                               :value="accountEnabled(card.channelKey, account.accountId)"
                               @update:value="(value) => updateAccountEnabled(card.channelKey, account.accountId, value)"
                             />
+                          </NFormItem>
+                          <NFormItem :label="t('pages.channels.labels.agent')">
+                            <NSelect
+                              :value="accountAgent(card.channelKey, account.accountId)"
+                              :options="agentOptions"
+                              clearable
+                              :placeholder="t('pages.channels.placeholders.accountAgent')"
+                              :loading="agentStore.loading"
+                              @update:value="(value) => updateAccountAgent(card.channelKey, account.accountId, value)"
+                            />
+                          </NFormItem>
+                          <NFormItem>
+                            <NText depth="3">
+                              {{
+                                accountAgent(card.channelKey, account.accountId)
+                                  ? t('pages.channels.accountAgentBound', { agent: readAccountAgentLabel(card.channelKey, account.accountId) })
+                                  : t('pages.channels.accountAgentEmpty')
+                              }}
+                            </NText>
                           </NFormItem>
                           <NFormItem
                             v-for="field in account.fieldKeys"
