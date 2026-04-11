@@ -30,6 +30,7 @@ const KNOWN_ACCOUNT_KEYS = new Set([
   'requireMention',
   'groupAllowFrom',
   'groups',
+  'model',
 ])
 
 export interface ChannelTemplate {

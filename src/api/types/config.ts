@@ -93,6 +93,7 @@ export interface ChannelAccountConfig {
   requireMention?: boolean
   groupAllowFrom?: string[]
   groups?: Record<string, unknown>
+  model?: ModelConfig
   [key: string]: unknown
 }
 

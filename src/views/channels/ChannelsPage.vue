@@ -38,6 +38,9 @@ import {
 } from '@fortawesome/free-solid-svg-icons'
 import { useChannelManagementStore } from '@/stores/channel-management'
 import { useAgentStore } from '@/stores/agent'
+import { useConfigStore } from '@/stores/config'
+import { useModelStore } from '@/stores/model'
+import type { ModelConfig, ModelInfo } from '@/api/types'
 import {
   collectSecretFieldKeys,
   resolveChannelTemplate,
@@ -133,10 +136,13 @@ const ACCOUNT_IGNORED_FIELDS = new Set([
   'platform',
   'channel',
   'channelKey',
+  'model',
 ])
 
 const channelStore = useChannelManagementStore()
 const agentStore = useAgentStore()
+const configStore = useConfigStore()
+const modelStore = useModelStore()
 const message = useMessage()
 const { t } = useI18n()
 
@@ -333,8 +339,198 @@ const agentOptions = computed<SelectOption[]>(() => {
     }
   }
 
-  return options.sort((a, b) => a.label.localeCompare(b.label))
+  return options.sort((a, b) => String(a.label).localeCompare(String(b.label)))
 })
+
+function collectConfiguredModelRefs(value: unknown, refs: Set<string>): void {
+  if (typeof value === 'string') {
+    const normalized = value.trim()
+    if (normalized) refs.add(normalized)
+    return
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      if (typeof item !== 'string') continue
+      const normalized = item.trim()
+      if (normalized) refs.add(normalized)
+    }
+    return
+  }
+
+  const row = asRecord(value)
+  for (const item of Object.keys(row)) {
+    const normalized = item.trim()
+    if (normalized) refs.add(normalized)
+  }
+}
+
+function normalizeModelRef(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function normalizeModelFallbacks(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .filter((item): item is string => typeof item === 'string')
+      .map((item) => item.trim())
+      .filter(Boolean)
+  }
+  return []
+}
+
+function readAccountModel(channelKey: string, accountId: string): ModelConfig {
+  const rawModel = asRecord(readAccountConfig(channelKey, accountId).model)
+  const primary = normalizeModelRef(rawModel.primary)
+  const fallback = normalizeModelFallbacks(rawModel.fallback)
+  const legacyFallbacks = normalizeModelFallbacks(rawModel.fallbacks)
+
+  return {
+    primary: primary || undefined,
+    fallback: (fallback.length > 0 ? fallback : legacyFallbacks).filter(Boolean),
+  }
+}
+
+function updateAccountModel(channelKey: string, accountId: string, nextModel: ModelConfig): void {
+  const primary = normalizeModelRef(nextModel.primary)
+  const fallback = normalizeModelFallbacks(nextModel.fallback)
+  const normalized: ModelConfig = {}
+
+  if (primary) normalized.primary = primary
+  if (fallback.length > 0) normalized.fallback = fallback
+
+  channelStore.setAccountField(
+    channelKey,
+    accountId,
+    'model',
+    Object.keys(normalized).length > 0 ? normalized : undefined
+  )
+}
+
+function accountPrimaryModel(channelKey: string, accountId: string): string | null {
+  return readAccountModel(channelKey, accountId).primary || null
+}
+
+function updateAccountPrimaryModel(channelKey: string, accountId: string, value: string | null): void {
+  const current = readAccountModel(channelKey, accountId)
+  updateAccountModel(channelKey, accountId, {
+    primary: value || undefined,
+    fallback: current.fallback,
+  })
+}
+
+function accountFallbackModels(channelKey: string, accountId: string): string[] {
+  return readAccountModel(channelKey, accountId).fallback || []
+}
+
+function updateAccountFallbackModels(channelKey: string, accountId: string, value: string[] | null): void {
+  const current = readAccountModel(channelKey, accountId)
+  updateAccountModel(channelKey, accountId, {
+    primary: current.primary,
+    fallback: value || [],
+  })
+}
+
+function readModelSummary(channelKey: string, accountId: string): string {
+  const model = readAccountModel(channelKey, accountId)
+  const parts: string[] = []
+
+  if (model.primary) {
+    parts.push(t('pages.channels.accountPrimaryModelBound', { model: readModelLabel(model.primary) }))
+  } else {
+    parts.push(t('pages.channels.accountPrimaryModelEmpty'))
+  }
+
+  if ((model.fallback || []).length > 0) {
+    parts.push(
+      t('pages.channels.accountFallbackModelsBound', {
+        models: model.fallback!.map((item) => readModelLabel(item)).join(', '),
+      })
+    )
+  } else {
+    parts.push(t('pages.channels.accountFallbackModelsEmpty'))
+  }
+
+  return parts.join(' · ')
+}
+
+function formatRuntimeModelOptionLabel(model: ModelInfo): string {
+  const provider = model.provider?.trim()
+  const id = model.id.trim()
+  return provider ? `${provider}/${id}` : id
+}
+
+const configuredModelRefs = computed(() => {
+  const refs = new Set<string>()
+  const providers = configStore.config?.models?.providers || {}
+
+  for (const [providerId, provider] of Object.entries(providers)) {
+    if (!provider || typeof provider !== 'object') continue
+    const providerRecord = provider as Record<string, unknown>
+    const models = providerRecord.models
+    if (!Array.isArray(models)) continue
+
+    for (const item of models) {
+      const row = asRecord(item)
+      const id = normalizeModelRef(row.id)
+      if (!id) continue
+      refs.add(`${providerId}/${id}`)
+    }
+  }
+
+  collectConfiguredModelRefs(configStore.config?.models?.primary, refs)
+  collectConfiguredModelRefs(configStore.config?.models?.fallback, refs)
+  collectConfiguredModelRefs(configStore.config?.agents?.defaults?.models, refs)
+  collectConfiguredModelRefs(configStore.config?.agents?.defaults?.model?.primary, refs)
+  collectConfiguredModelRefs(configStore.config?.agents?.defaults?.model?.fallback, refs)
+  collectConfiguredModelRefs(asRecord(configStore.config?.agents?.defaults?.model).fallbacks, refs)
+
+  return Array.from(refs).sort((a, b) => a.localeCompare(b))
+})
+
+const modelOptions = computed<SelectOption[]>(() => {
+  const options: SelectOption[] = []
+  const seen = new Set<string>()
+
+  for (const modelRef of configuredModelRefs.value) {
+    if (!modelRef || seen.has(modelRef)) continue
+    options.push({ label: modelRef, value: modelRef })
+    seen.add(modelRef)
+  }
+
+  for (const model of modelStore.models) {
+    if (model.available === false) continue
+    const optionValue = formatRuntimeModelOptionLabel(model)
+    if (!optionValue || seen.has(optionValue)) continue
+    options.push({
+      label: optionValue,
+      value: optionValue,
+    })
+    seen.add(optionValue)
+  }
+
+  for (const card of channelCards.value) {
+    for (const account of card.accounts) {
+      const model = readAccountModel(card.channelKey, account.accountId)
+      const values = [model.primary, ...(model.fallback || [])].filter(Boolean) as string[]
+      for (const value of values) {
+        if (seen.has(value)) continue
+        options.push({
+          label: `${value} (${t('pages.channels.missingModel')})`,
+          value,
+        })
+        seen.add(value)
+      }
+    }
+  }
+
+  return options.sort((a, b) => String(a.label).localeCompare(String(b.label)))
+})
+
+function readModelLabel(modelRef: string): string {
+  const match = modelOptions.value.find((option) => option.value === modelRef)
+  return typeof match?.label === 'string' ? match.label : modelRef
+}
 
 function channelEnabled(channelKey: string): boolean {
   const config = readChannelConfig(channelKey)
@@ -470,7 +666,8 @@ function removeAccount(channelKey: string, accountId: string): void {
 }
 
 function refreshExpandedPanels(): void {
-  expandedChannelKeys.value = channelCards.value.map((card) => card.channelKey)
+  const validKeys = new Set(channelCards.value.map((card) => card.channelKey))
+  expandedChannelKeys.value = expandedChannelKeys.value.filter((key) => validKeys.has(key))
 }
 
 function buildPluginInstallCommands(pluginPackages: string[]): string[] {
@@ -515,6 +712,8 @@ async function handleRefresh(): Promise<void> {
     await Promise.all([
       channelStore.refreshAll(),
       agentStore.fetchAgents(),
+      configStore.fetchConfig(),
+      modelStore.fetchModels(),
     ])
     refreshExpandedPanels()
   } catch {
@@ -816,14 +1015,28 @@ onMounted(() => {
                               @update:value="(value) => updateAccountAgent(card.channelKey, account.accountId, value)"
                             />
                           </NFormItem>
-                          <NFormItem>
-                            <NText depth="3">
-                              {{
-                                accountAgent(card.channelKey, account.accountId)
-                                  ? t('pages.channels.accountAgentBound', { agent: readAccountAgentLabel(card.channelKey, account.accountId) })
-                                  : t('pages.channels.accountAgentEmpty')
-                              }}
-                            </NText>
+                          <NFormItem :label="t('pages.channels.labels.primaryModel')">
+                            <NSelect
+                              :value="accountPrimaryModel(card.channelKey, account.accountId)"
+                              :options="modelOptions"
+                              clearable
+                              filterable
+                              :placeholder="t('pages.channels.placeholders.accountPrimaryModel')"
+                              :loading="modelStore.loading || configStore.loading"
+                              @update:value="(value) => updateAccountPrimaryModel(card.channelKey, account.accountId, value)"
+                            />
+                          </NFormItem>
+                          <NFormItem :label="t('pages.channels.labels.fallbackModels')">
+                            <NSelect
+                              :value="accountFallbackModels(card.channelKey, account.accountId)"
+                              :options="modelOptions"
+                              clearable
+                              filterable
+                              multiple
+                              :placeholder="t('pages.channels.placeholders.accountFallbackModels')"
+                              :loading="modelStore.loading || configStore.loading"
+                              @update:value="(value) => updateAccountFallbackModels(card.channelKey, account.accountId, value)"
+                            />
                           </NFormItem>
                           <NFormItem
                             v-for="field in account.fieldKeys"
